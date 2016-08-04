@@ -38,7 +38,11 @@ import org.jivesoftware.smack.provider.ProviderManager;
 import org.jivesoftware.smack.util.StringUtils;
 
 import javax.net.ssl.SSLSocketFactory;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.Properties;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -284,11 +288,30 @@ public class CcsClient {
 
     }
 
-    public static void main(String[] args) throws XMPPException {
-        final String senderId = args[0];
-        final String serverKey = args[1];
+    public static void main(String[] args) throws XMPPException, IOException {
+        final String propertiesFile;
+        if (args.length > 0 && args[0] != null) {
+            propertiesFile = args[0];
+        }
+        else {
+            propertiesFile = "fcm-app-server.properties";
+        }
 
-        CcsClient ccsClient = CcsClient.prepareClient(senderId, serverKey, true);
-        ccsClient.connect();
+        File config = new File(propertiesFile);
+        try (FileInputStream fileInputStream = new FileInputStream(config)) {
+            logger.log(Level.INFO, "Loading configuration from file: " + propertiesFile);
+            Properties properties = new Properties();
+            properties.load(fileInputStream);
+
+            String senderId = properties.getProperty("org.codepond.fcmappserver.senderId");
+            String serverKey = properties.getProperty("org.codepond.fcmappserver.serverKey");
+            if (!senderId.isEmpty() && !serverKey.isEmpty()) {
+                CcsClient ccsClient = CcsClient.prepareClient(senderId, serverKey, true);
+                ccsClient.connect();
+            }
+            else {
+                System.out.println("Sender ID/Server Key is not configured. Terminating...");
+            }
+        }
     }
 }
