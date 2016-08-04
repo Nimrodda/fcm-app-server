@@ -20,14 +20,16 @@
 
 package org.codepond.fcmappserver;
 
+import org.codepond.fcmappserver.messages.UpstreamMessage;
+
 /**
  * Handles a user registration.
  */
-public class RegisterProcessor implements PayloadProcessor{
+public class RegisterProcessor implements PayloadProcessor {
 
     @Override
-    public void handleMessage(CcsMessage msg) {
-        String accountName = msg.getPayload().get("account");
+    public void handleMessage(UpstreamMessage.Request msg) {
+        String accountName = msg.getData().get("account");
         PseudoDao.getInstance().addRegistration(msg.getFrom(), accountName);
     }
 

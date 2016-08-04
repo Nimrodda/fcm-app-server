@@ -20,25 +20,18 @@
 
 package org.codepond.fcmappserver;
 
+import org.codepond.fcmappserver.messages.UpstreamMessage;
+
 /**
  * Handles an echo request.
  */
-public class MessageProcessor implements PayloadProcessor{
+public class MessageProcessor implements PayloadProcessor {
 
     @Override
-    public void handleMessage(CcsMessage msg) {
+    public void handleMessage(UpstreamMessage.Request msg) {
         PseudoDao dao = PseudoDao.getInstance();
         CcsClient client = CcsClient.getInstance();
         String msgId = dao.getUniqueMessageId();
-        String jsonRequest = 
-                CcsClient.createJsonMessage(
-                        msg.getFrom(), 
-                        msgId, 
-                        msg.getPayload(), 
-                        null, 
-                        null, // TTL (null -> default-TTL) 
-                        false);
-        client.send(jsonRequest);
     }
 
 }

@@ -20,6 +20,8 @@
 
 package org.codepond.fcmappserver;
 
+import org.codepond.fcmappserver.messages.UpstreamMessage;
+
 /**
  * All messages from the user have a specific format.
  * The Action field defines, what the action is about. An example
@@ -30,6 +32,6 @@ package org.codepond.fcmappserver;
  */
 public interface PayloadProcessor {
     
-    void handleMessage(CcsMessage msg);
+    void handleMessage(UpstreamMessage.Request msg);
     
 }

@@ -1,11 +1,15 @@
 /*
- * Copyright 2016 Nimrod Dayan
+ * Modifications Copyright 2016 Nimrod Dayan
+ *
+ * Copyright 2014 Wolfram Rittmeyer.
+ *
+ * Portions Copyright Google Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ *      http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -13,36 +17,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package org.codepond.fcmappserver;
 
+import com.squareup.moshi.JsonAdapter;
+import com.squareup.moshi.Moshi;
+import org.codepond.fcmappserver.messages.DownstreamMessage;
+import org.codepond.fcmappserver.messages.FcmMessage;
+import org.codepond.fcmappserver.messages.UpstreamMessage;
 import org.jivesoftware.smack.ConnectionConfiguration;
 import org.jivesoftware.smack.ConnectionConfiguration.SecurityMode;
 import org.jivesoftware.smack.ConnectionListener;
-import org.jivesoftware.smack.PacketInterceptor;
-import org.jivesoftware.smack.PacketListener;
 import org.jivesoftware.smack.XMPPConnection;
 import org.jivesoftware.smack.XMPPException;
 import org.jivesoftware.smack.filter.PacketTypeFilter;
 import org.jivesoftware.smack.packet.DefaultPacketExtension;
 import org.jivesoftware.smack.packet.Message;
 import org.jivesoftware.smack.packet.Packet;
-import org.jivesoftware.smack.packet.PacketExtension;
 import org.jivesoftware.smack.provider.PacketExtensionProvider;
 import org.jivesoftware.smack.provider.ProviderManager;
 import org.jivesoftware.smack.util.StringUtils;
-import org.json.simple.JSONValue;
-import org.json.simple.parser.ParseException;
-import org.xmlpull.v1.XmlPullParser;
-
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Random;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import javax.net.ssl.SSLSocketFactory;
+import java.io.IOException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Sample Smack implementation of a client for GCM Cloud Connection Server. 
@@ -67,7 +65,6 @@ public class CcsClient {
     public static final String GCM_ELEMENT_NAME = "gcm";
     public static final String GCM_NAMESPACE = "google:mobile:data";
 
-    static Random random = new Random();
     XMPPConnection connection;
     ConnectionConfiguration config;
 
@@ -75,7 +72,13 @@ public class CcsClient {
     private static CcsClient sInstance = null;
     private String mServerKey = null;
     private String mSenderId = null;
-    private boolean mDebuggable = false;
+    private boolean mDebuggable = true;
+
+    private JsonAdapter<UpstreamMessage.Request> mUpstreamRequestAdapter;
+    private JsonAdapter<UpstreamMessage.Response> mUpstreamResponseAdapter;
+    private JsonAdapter<DownstreamMessage.Request> mDownstreamRequestAdapter;
+    private JsonAdapter<DownstreamMessage.Response> mDownstreamResponseAdapter;
+    private JsonAdapter<FcmMessage> mFcmMessageAdapter;
 
     /**
      * XMPP Packet Extension for GCM Cloud Connection Server.
@@ -138,7 +141,7 @@ public class CcsClient {
         }
         return sInstance;
     }
-
+    
     public static CcsClient prepareClient(String senderId, String serverKey, boolean debuggable) {
         synchronized(CcsClient.class) {
             if (sInstance == null) {
@@ -147,39 +150,28 @@ public class CcsClient {
         }
         return sInstance;
     }
-
+    
     private CcsClient(String senderId, String serverKey, boolean debuggable) {
         this();
         mServerKey = serverKey;
         mSenderId = senderId;
         mDebuggable = debuggable;
+        Moshi moshi = new Moshi.Builder().build();
+        mDownstreamRequestAdapter = moshi.adapter(DownstreamMessage.Request.class);
+        mDownstreamResponseAdapter = moshi.adapter(DownstreamMessage.Response.class);
+        mUpstreamRequestAdapter = moshi.adapter(UpstreamMessage.Request.class);
+        mUpstreamResponseAdapter = moshi.adapter(UpstreamMessage.Response.class);
+        mFcmMessageAdapter = moshi.adapter(FcmMessage.class);
     }
 
     private CcsClient() {
         // Add GcmPacketExtension
         ProviderManager.getInstance().addExtensionProvider(GCM_ELEMENT_NAME,
-                GCM_NAMESPACE, new PacketExtensionProvider() {
-
-                    @Override
-                    public PacketExtension parseExtension(XmlPullParser parser)
-                    throws Exception {
-                        String json = parser.nextText();
-                        GcmPacketExtension packet = new GcmPacketExtension(json);
-                        return packet;
-                    }
+                GCM_NAMESPACE, (PacketExtensionProvider) parser -> {
+                    String json = parser.nextText();
+                    GcmPacketExtension packet = new GcmPacketExtension(json);
+                    return packet;
                 });
-    }
-
-    /**
-     * Returns a random message id to uniquely identify a message.
-     *
-     * <p>
-     * Note: This is generated by a pseudo random number generator for
-     * illustration purpose, and is not guaranteed to be unique.
-     *
-     */
-    public String getRandomMessageId() {
-        return "m-" + Long.toString(random.nextLong());
     }
 
     /**
@@ -190,161 +182,15 @@ public class CcsClient {
         connection.sendPacket(request);
     }
 
-    /// new: for sending messages to a list of recipients
-    /**
-     * Sends a message to multiple recipients. Kind of like the old
-     * HTTP message with the list of regIds in the "registration_ids" field.
-     */
-    public void sendBroadcast(Map<String, String> payload, String collapseKey,
-            long timeToLive, Boolean delayWhileIdle, List<String> recipients) {
-        Map map = createAttributeMap(null, null, payload, collapseKey,
-                    timeToLive, delayWhileIdle);
-        for (String toRegId: recipients) {
-            String messageId = getRandomMessageId();
-            map.put("message_id", messageId);
-            map.put("to", toRegId);
-            String jsonRequest = createJsonMessage(map);
-            send(jsonRequest);
-        }
-    }
-
     /// new: customized version of the standard handleIncomingDateMessage method
     /**
      * Handles an upstream data message from a device application.
      */
-    public void handleIncomingDataMessage(CcsMessage msg) {
-        if (msg.getPayload().get("action") != null) {
-            PayloadProcessor processor = ProcessorFactory.getProcessor(msg.getPayload().get("action"));
-            processor.handleMessage(msg);
-        }
+    public void handleIncomingDataMessage(UpstreamMessage.Request msg) {
+        PayloadProcessor processor = ProcessorFactory.getProcessor(msg.getData().get("action"));
+        processor.handleMessage(msg);
     }
-
-    /// new: was previously part of the previous method
-    /**
-     *
-     */
-    private CcsMessage getMessage(Map<String, Object> jsonObject) {
-        String from = jsonObject.get("from").toString();
-
-        // PackageName of the application that sent this message.
-        String category = jsonObject.get("category").toString();
-
-        // unique id of this message
-        String messageId = jsonObject.get("message_id").toString();
-
-        @SuppressWarnings("unchecked")
-        Map<String, String> payload = (Map<String, String>) jsonObject.get("data");
-
-        CcsMessage msg = new CcsMessage(from, category, messageId, payload);
-
-        return msg;
-    }
-
-    /**
-     * Handles an ACK.
-     *
-     * <p>
-     * By default, it only logs a INFO message, but subclasses could override it
-     * to properly handle ACKS.
-     */
-    public void handleAckReceipt(Map<String, Object> jsonObject) {
-        String messageId = jsonObject.get("message_id").toString();
-        String from = jsonObject.get("from").toString();
-        logger.log(Level.INFO, "handleAckReceipt() from: " + from + ", messageId: " + messageId);
-    }
-
-    /**
-     * Handles a NACK.
-     *
-     * <p>
-     * By default, it only logs a INFO message, but subclasses could override it
-     * to properly handle NACKS.
-     */
-    public void handleNackReceipt(Map<String, Object> jsonObject) {
-        String messageId = jsonObject.get("message_id").toString();
-        String from = jsonObject.get("from").toString();
-        logger.log(Level.INFO, "handleNackReceipt() from: " + from + ", messageId: " + messageId);
-    }
-
-    /**
-     * Creates a JSON encoded GCM message.
-     *
-     * @param to RegistrationId of the target device (Required).
-     * @param messageId Unique messageId for which CCS will send an "ack/nack"
-     * (Required).
-     * @param payload Message content intended for the application. (Optional).
-     * @param collapseKey GCM collapse_key parameter (Optional).
-     * @param timeToLive GCM time_to_live parameter (Optional).
-     * @param delayWhileIdle GCM delay_while_idle parameter (Optional).
-     * @return JSON encoded GCM message.
-     */
-    public static String createJsonMessage(String to, String messageId, Map<String, String> payload,
-            String collapseKey, Long timeToLive, Boolean delayWhileIdle) {
-        return createJsonMessage(createAttributeMap(to, messageId, payload,
-                collapseKey, timeToLive, delayWhileIdle));
-    }
-
-    public static String createJsonMessage(Map map) {
-        return JSONValue.toJSONString(map);
-    }
-
-    public static Map createAttributeMap(String to, String messageId, Map<String, String> payload,
-            String collapseKey, Long timeToLive, Boolean delayWhileIdle) {
-        Map<String, Object> message = new HashMap<String, Object>();
-        if (to != null) {
-            message.put("to", to);
-        }
-        if (collapseKey != null) {
-            message.put("collapse_key", collapseKey);
-        }
-        if (timeToLive != null) {
-            message.put("time_to_live", timeToLive);
-        }
-        if (delayWhileIdle != null && delayWhileIdle) {
-            message.put("delay_while_idle", true);
-        }
-        if (messageId != null) {
-            message.put("message_id", messageId);
-        }
-        message.put("data", payload);
-        return message;
-    }
-
-    /**
-     * Creates a JSON encoded ACK message for an upstream message received from
-     * an application.
-     *
-     * @param to RegistrationId of the device who sent the upstream message.
-     * @param messageId messageId of the upstream message to be acknowledged to
-     * CCS.
-     * @return JSON encoded ack.
-     */
-    public static String createJsonAck(String to, String messageId) {
-        Map<String, Object> message = new HashMap<String, Object>();
-        message.put("message_type", "ack");
-        message.put("to", to);
-        message.put("message_id", messageId);
-        return JSONValue.toJSONString(message);
-    }
-
-    /// new: NACK added
-    /**
-     * Creates a JSON encoded NACK message for an upstream message received from
-     * an application.
-     *
-     * @param to RegistrationId of the device who sent the upstream message.
-     * @param messageId messageId of the upstream message to be acknowledged to
-     * CCS.
-     * @return JSON encoded nack.
-     */
-    public static String createJsonNack(String to, String messageId) {
-        Map<String, Object> message = new HashMap<String, Object>();
-        message.put("message_type", "nack");
-        message.put("to", to);
-        message.put("message_id", messageId);
-        return JSONValue.toJSONString(message);
-    }
-
+    
     /**
      * Connects to GCM Cloud Connection Server using the supplied credentials.
      * @throws XMPPException
@@ -395,92 +241,54 @@ public class CcsClient {
         });
 
         // Handle incoming packets
-        connection.addPacketListener(new PacketListener() {
-
-            @Override
-            public void processPacket(Packet packet) {
-                logger.log(Level.INFO, "Received: " + packet.toXML());
-                Message incomingMessage = (Message) packet;
-                GcmPacketExtension gcmPacket
-                        = (GcmPacketExtension) incomingMessage.getExtension(GCM_NAMESPACE);
-                String json = gcmPacket.getJson();
-                try {
-                    @SuppressWarnings("unchecked")
-                    Map<String, Object> jsonMap
-                            = (Map<String, Object>) JSONValue.parseWithException(json);
-
-                    handleMessage(jsonMap);
-                } catch (ParseException e) {
-                    logger.log(Level.SEVERE, "Error parsing JSON " + json, e);
-                } catch (Exception e) {
-                    logger.log(Level.SEVERE, "Couldn't send echo.", e);
-                }
-            }
+        connection.addPacketListener(packet -> {
+            logger.log(Level.INFO, "Received: " + packet.toXML());
+            Message incomingMessage = (Message) packet;
+            GcmPacketExtension gcmPacket
+                    = (GcmPacketExtension) incomingMessage.getExtension(GCM_NAMESPACE);
+            String json = gcmPacket.getJson();
+            handleMessage(json);
         }, new PacketTypeFilter(Message.class));
 
         // Log all outgoing packets
-        connection.addPacketInterceptor(new PacketInterceptor() {
-            @Override
-            public void interceptPacket(Packet packet) {
-                logger.log(Level.INFO, "Sent: {0}", packet.toXML());
-            }
-        }, new PacketTypeFilter(Message.class));
+        connection.addPacketInterceptor(packet -> logger.log(Level.INFO, "Sent: {0}", packet.toXML()), new PacketTypeFilter(Message.class));
 
         connection.login(mSenderId + "@gcm.googleapis.com", mServerKey);
         logger.log(Level.INFO, "logged in: " + mSenderId);
     }
 
-    private void handleMessage(Map<String, Object> jsonMap) {
-        // present for "ack"/"nack", null otherwise
-        Object messageType = jsonMap.get("message_type");
-
-        if (messageType == null) {
-            CcsMessage msg = getMessage(jsonMap);
-            // Normal upstream data message
-            try {
-                handleIncomingDataMessage(msg);
-                // Send ACK to CCS
-                String ack = createJsonAck(msg.getFrom(), msg.getMessageId());
-                send(ack);
+    private void handleMessage(String messageJson) {
+        try {
+            FcmMessage fcmMessage = mFcmMessageAdapter.fromJson(messageJson);
+            if ("control".equals(fcmMessage.getMessageType())) {
+                logger.log(Level.INFO, "Received control message");
             }
-            catch (Exception e) {
-                // Send NACK to CCS
-                String nack = createJsonNack(msg.getFrom(), msg.getMessageId());
-                send(nack);
+            else if ("ack".equals(fcmMessage.getMessageType())) {
+                logger.log(Level.INFO, "Received ack message for " + fcmMessage.getMessageId());
             }
-        } else if ("ack".equals(messageType.toString())) {
-            // Process Ack
-            handleAckReceipt(jsonMap);
-        } else if ("nack".equals(messageType.toString())) {
-            // Process Nack
-            handleNackReceipt(jsonMap);
-        } else {
-            logger.log(Level.WARNING, "Unrecognized message type (%s)",
-                    messageType.toString());
+            else if ("nack".equals(fcmMessage.getMessageType())) {
+                logger.log(Level.INFO, "Received nack message for " + fcmMessage.getMessageId());
+            }
+            else {
+                logger.log(Level.INFO, "Received upstream message");
+                UpstreamMessage.Request upStreamMessage = mUpstreamRequestAdapter.fromJson(messageJson);
+                handleIncomingDataMessage(upStreamMessage);
+                // Send mandatory ACK to CCS
+                String json = mUpstreamResponseAdapter.toJson(new UpstreamMessage.Response(upStreamMessage.getFrom(), upStreamMessage.getMessageId()));
+                send(json);
+            }
         }
+        catch (IOException e) {
+            logger.log(Level.SEVERE, "Error parsing JSON " + messageJson, e);
+        }
+
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws XMPPException {
         final String senderId = args[0];
         final String serverKey = args[1];
-        final String toRegId = args[2];
 
         CcsClient ccsClient = CcsClient.prepareClient(senderId, serverKey, true);
-
-        try {
-            ccsClient.connect();
-        } catch (XMPPException e) {
-            e.printStackTrace();
-        }
-
-        // Send a sample hello downstream message to a device.
-        String messageId = ccsClient.getRandomMessageId();
-        Map<String, String> payload = new HashMap<String, String>();
-        payload.put("message", "Simple sample sessage");
-        String collapseKey = "sample";
-        Long timeToLive = 10000L;
-        Boolean delayWhileIdle = true;
-        ccsClient.send(createJsonMessage(toRegId, messageId, payload, collapseKey,
-                timeToLive, delayWhileIdle));
+        ccsClient.connect();
     }
 }
