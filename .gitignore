@@ -45,3 +45,4 @@ proguard-project.txt
 tmp
 *.tgz
 /dist/
+.gradle/

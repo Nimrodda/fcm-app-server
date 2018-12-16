@@ -1,7 +1,13 @@
+plugins {
+    id 'application'
+}
+
 group 'org.codepond'
 version '1.0.0-SNAPSHOT'
 
-apply plugin: 'java'
+application {
+    mainClassName = "org.codepond.fcmappserver.CcsClient"
+}
 
 repositories {
     jcenter()
